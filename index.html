@@ -1432,7 +1432,7 @@
   }
 </style>
 </head>
-<body>
+<body class="theme-light">
 
 <header>
   <div class="logo-area">
@@ -1461,8 +1461,8 @@
     </svg>
   </button>
   <button class="theme-toggle" id="theme-toggle-btn" onclick="toggleTheme()" title="Theme wechseln">
-    <span class="toggle-icon">☀</span>
-    <span id="theme-label">Hell</span>
+    <span class="toggle-icon">🌙</span>
+    <span id="theme-label">Dunkel</span>
   </button>
 </header>
 
@@ -1482,8 +1482,8 @@
       <span class="stat-label">Kategorien</span>
     </div>
     <div class="stat">
-      <span class="stat-val">EUR</span>
-      <span class="stat-label">Kostenkontrolle aktiv</span>
+      <span class="stat-val" id="budget-total" style="font-size:1.1rem;line-height:1.2;">—</span>
+      <span class="stat-label">Gesamtbudget (EUR)</span>
     </div>
   </div>
 
@@ -2105,10 +2105,44 @@ function applySettings() {
   showToast('Einstellungen gespeichert');
 }
 
+// ── BUDGET TOTAL ──────────────────────────────────────────────────────────────
+function parseBudgetValue(str) {
+  const cleaned = String(str ?? '').replace(/[€EUReur\s]/g, '');
+  const nums = [...cleaned.matchAll(/[\d]+(?:[.,][\d]+)*/g)]
+    .map(m => parseFloat(m[0].replace(/\./g, '').replace(',', '.')))
+    .filter(n => !isNaN(n) && n > 0);
+  return nums;
+}
+
+function formatBudgetRange(low, high) {
+  const fmt = n => {
+    if (n >= 1_000_000) return (n / 1_000_000).toLocaleString('de-DE', { maximumFractionDigits: 2 }) + ' Mio.';
+    return n.toLocaleString('de-DE', { maximumFractionDigits: 0 });
+  };
+  if (low === high) return fmt(low);
+  return fmt(low) + ' – ' + fmt(high);
+}
+
+function updateBudgetTotal() {
+  let sumLow = 0, sumHigh = 0, hasAny = false;
+  ideas.forEach(idea => {
+    const nums = parseBudgetValue(idea.budget);
+    if (nums.length === 0) return;
+    hasAny = true;
+    sumLow  += nums[0];
+    sumHigh += nums.length >= 2 ? nums[nums.length - 1] : nums[0];
+  });
+  const el = document.getElementById('budget-total');
+  if (!el) return;
+  if (!hasAny) { el.textContent = '—'; return; }
+  el.textContent = formatBudgetRange(sumLow, sumHigh);
+}
+
 // ── RENDER GRID ───────────────────────────────────────────────────────────────
 function renderGrid() {
   document.getElementById('total-count').textContent = ideas.length;
   document.getElementById('hoch-count').textContent = ideas.filter(i => i.prio === 'hoch').length;
+  updateBudgetTotal();
   renderCatTabs();
   renderPrioFilters();
   renderStatusFilters();
@@ -2120,6 +2154,7 @@ function renderGridFromList(filtered) {
 
   document.getElementById('total-count').textContent = ideas.length;
   document.getElementById('hoch-count').textContent = ideas.filter(i => i.prio === 'hoch').length;
+  updateBudgetTotal();
 
   if (filtered.length === 0) {
     grid.innerHTML = `<div class="empty-state"><div class="empty-icon">◇</div><p>Keine Ideen für diese Filterauswahl.</p></div>`;
@@ -2465,22 +2500,23 @@ function gsParseRows(rows) {
   const statusByLabel = Object.fromEntries(Object.entries(STATUS_CONFIG).map(([k,s]) => [s.label, k]));
 
   return rows.slice(1).filter(r => r[colIdx('Titel')]).map(r => {
-    const catLabel    = r[colIdx('Kategorie')]  || '';
-    const prioLabel   = r[colIdx('Priorität')]  || '';
-    const statusLabel = r[colIdx('Status')]     || 'Draft';
-    const tagsRaw     = r[colIdx('Tags')]       || '';
+    const get = name => { const i = colIdx(name); return i >= 0 ? r[i] : ''; };
+    const catLabel    = get('Kategorie');
+    const prioLabel   = get('Priorität');
+    const statusLabel = String(get('Status') || 'Draft');
+    const tagsRaw     = String(get('Tags') || '');
     return {
-      id:          Number(r[colIdx('ID')]) || Date.now(),
+      id:          Number(get('ID')) || Date.now(),
       cat:         catByLabel[catLabel]    || Object.keys(CATS)[0],
-      title:       r[colIdx('Titel')]      || '',
-      desc:        r[colIdx('Beschreibung')] || '',
+      title:       String(get('Titel')         || ''),
+      desc:        String(get('Beschreibung')  || ''),
       prio:        prioByLabel[prioLabel]  || 'mittel',
       status:      statusByLabel[statusLabel] || 'draft',
-      stars:       Number(r[colIdx('Bewertung')]) || 3,
-      budget:      r[colIdx('Budget (EUR)')] || '',
-      source:      r[colIdx('Quelle')]     || '',
+      stars:       Number(get('Bewertung'))    || 3,
+      budget:      String(get('Budget (EUR)')  || ''),
+      source:      String(get('Quelle')        || ''),
       tags:        tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [],
-      attachments: [],   // attachments (files) can't round-trip via Sheets
+      attachments: [],
     };
   });
 }
@@ -2570,7 +2606,7 @@ window.addEventListener('load', () => {
 
 
 // ── THEME TOGGLE ─────────────────────────────────────────────────────────────
-let isLightTheme = false;
+let isLightTheme = true;
 
 function toggleTheme() {
   isLightTheme = !isLightTheme;
