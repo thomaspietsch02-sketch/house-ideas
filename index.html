@@ -1264,6 +1264,48 @@
   }
   .btn-delete:hover { background: rgba(224,112,112,0.25); }
 
+  /* UPLOAD PROGRESS */
+  .upload-progress-bar-wrap {
+    width: 100%;
+    height: 3px;
+    background: rgba(201,169,110,0.15);
+    border-radius: 2px;
+    margin-top: 6px;
+    overflow: hidden;
+    display: none;
+  }
+  .upload-progress-bar-wrap.visible { display: block; }
+  .upload-progress-bar {
+    height: 100%;
+    background: var(--gold);
+    border-radius: 2px;
+    transition: width 0.3s;
+    width: 0%;
+  }
+  .upload-status-label {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    margin-top: 5px;
+    min-height: 16px;
+    font-family: 'Inter', sans-serif;
+    letter-spacing: 0.04em;
+  }
+  .upload-status-label.error { color: #E07070; }
+  .upload-status-label.success { color: #8BAF7C; }
+
+  .attach-thumb .drive-badge {
+    position: absolute;
+    bottom: 2px; left: 2px;
+    background: rgba(66,133,244,0.85);
+    border-radius: 2px;
+    padding: 1px 4px;
+    font-size: 0.48rem;
+    color: #fff;
+    font-family: 'Inter', sans-serif;
+    letter-spacing: 0.03em;
+    pointer-events: none;
+  }
+
   /* ATTACHMENTS */
   .drop-zone {
     border: 1.5px dashed rgba(201,169,110,0.3);
@@ -1604,11 +1646,15 @@
           Dateien hier ablegen oder <span>auswählen</span>
         </div>
       </div>
+      <div class="upload-progress-bar-wrap" id="upload-progress-wrap">
+        <div class="upload-progress-bar" id="upload-progress-bar"></div>
+      </div>
+      <div class="upload-status-label" id="upload-status-label"></div>
       <div class="attach-preview-list" id="attach-preview"></div>
     </div>
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeModal()">Abbrechen</button>
-      <button class="btn-save" onclick="saveIdea()">Speichern</button>
+      <button class="btn-save" id="btn-save-idea" onclick="saveIdea()">Speichern</button>
     </div>
   </div>
 </div>
@@ -1855,32 +1901,129 @@ function applyFiltersAndSort() {
 }
 
 // ── ATTACHMENT HANDLING ───────────────────────────────────────────────────────
-let pendingAttachments = []; // [{name, type, dataUrl}]
+// Each attachment object:
+//   Pending (not yet uploaded): { name, type, dataUrl, status: 'pending' }
+//   Uploaded to Drive:          { name, type, dataUrl, displayUrl, viewUrl, downloadUrl, fileId, status: 'uploaded' }
+//   Loaded from Sheet (URL only): { name, type, displayUrl, viewUrl, downloadUrl, fileId, status: 'uploaded' }
+
+let pendingAttachments = [];
+let _currentIdeaIdForUpload = null; // set when modal opens
 
 function handleFiles(files) {
   Array.from(files).forEach(file => {
     const reader = new FileReader();
     reader.onload = e => {
-      pendingAttachments.push({ name: file.name, type: file.type, dataUrl: e.target.result });
+      const att = { name: file.name, type: file.type, dataUrl: e.target.result, status: 'pending' };
+      pendingAttachments.push(att);
       renderAttachPreview();
+      // Immediately upload to Drive
+      uploadAttachmentToDrive(att, pendingAttachments.length - 1);
     };
     reader.readAsDataURL(file);
   });
 }
 
-function renderAttachPreview() {
-  const container = document.getElementById('attach-preview');
-  container.innerHTML = pendingAttachments.map((a, i) => `
-    <div class="attach-thumb" onclick="openLightboxFromPending(${i})">
-      ${isImage(a.type)
-        ? `<img src="${a.dataUrl}" alt="${a.name}">`
-        : `<div class="file-icon">${fileIcon(a.type)}<span>${truncName(a.name)}</span></div>`}
-      <button class="attach-remove" onclick="removeAttach(event,${i})">×</button>
-    </div>`).join('');
+// Upload a single attachment to Google Drive via Apps Script
+async function uploadAttachmentToDrive(att, idx) {
+  setUploadStatus(`Lade hoch: ${att.name}…`, '');
+  setUploadProgress(10);
+
+  // Use the idea's existing ID if editing, otherwise use a temp session key
+  const ideaId = _currentIdeaIdForUpload || ('new_' + Date.now());
+
+  try {
+    const res = await fetch(GS_WEBAPP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({
+        action:    'upload',
+        ideaId:    String(ideaId),
+        fileName:  att.name,
+        mimeType:  att.type,
+        base64Data: att.dataUrl,
+      }),
+    });
+
+    setUploadProgress(80);
+    const data = await res.json().catch(() => ({}));
+
+    if (data.status !== 'ok') throw new Error(data.message || 'Upload fehlgeschlagen');
+
+    // Update the attachment in place with Drive metadata
+    pendingAttachments[idx] = {
+      name:        att.name,
+      type:        att.type,
+      dataUrl:     att.dataUrl,      // keep for local preview
+      displayUrl:  data.displayUrl,  // for image display
+      viewUrl:     data.viewUrl,     // Drive view link
+      downloadUrl: data.downloadUrl,
+      fileId:      data.fileId,
+      status:      'uploaded',
+    };
+
+    setUploadProgress(100);
+    setUploadStatus(`✓ ${att.name} in Drive gespeichert`, 'success');
+    setTimeout(() => setUploadStatus('', ''), 3000);
+
+  } catch (err) {
+    pendingAttachments[idx].status = 'error';
+    setUploadStatus(`⚠ Upload fehlgeschlagen: ${err.message}`, 'error');
+  }
+
+  setUploadProgress(0);
+  renderAttachPreview();
 }
 
-function removeAttach(e, i) {
+function setUploadProgress(pct) {
+  const wrap = document.getElementById('upload-progress-wrap');
+  const bar  = document.getElementById('upload-progress-bar');
+  if (pct > 0) {
+    wrap.classList.add('visible');
+    bar.style.width = pct + '%';
+  } else {
+    wrap.classList.remove('visible');
+    bar.style.width = '0%';
+  }
+}
+
+function setUploadStatus(msg, type) {
+  const el = document.getElementById('upload-status-label');
+  el.textContent  = msg;
+  el.className    = 'upload-status-label' + (type ? ' ' + type : '');
+}
+
+function renderAttachPreview() {
+  const container = document.getElementById('attach-preview');
+  container.innerHTML = pendingAttachments.map((a, i) => {
+    const isDrive    = a.status === 'uploaded';
+    const isErr      = a.status === 'error';
+    const previewSrc = a.displayUrl || a.dataUrl || null;
+    const badge      = isDrive ? `<span class="drive-badge">Drive ✓</span>` : (isErr ? `<span class="drive-badge" style="background:rgba(224,112,112,0.85)">⚠ Fehler</span>` : `<span class="drive-badge" style="background:rgba(150,150,150,0.7)">…</span>`);
+
+    return `
+    <div class="attach-thumb" onclick="openLightboxFromPending(${i})">
+      ${isImage(a.type) && previewSrc
+        ? `<img src="${previewSrc}" alt="${a.name}">`
+        : `<div class="file-icon">${fileIcon(a.type)}<span>${truncName(a.name)}</span></div>`}
+      ${badge}
+      <button class="attach-remove" onclick="removeAttach(event,${i})">×</button>
+    </div>`;
+  }).join('');
+}
+
+async function removeAttach(e, i) {
   e.stopPropagation();
+  const att = pendingAttachments[i];
+  // Delete from Drive if already uploaded
+  if (att.fileId) {
+    try {
+      await fetch(GS_WEBAPP_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ action: 'delete', fileId: att.fileId }),
+      });
+    } catch (_) {}
+  }
   pendingAttachments.splice(i, 1);
   renderAttachPreview();
 }
@@ -1933,17 +2076,24 @@ function renderLightbox() {
   const content = document.getElementById('lb-content');
   document.getElementById('lb-name').textContent = `${lbIndex + 1} / ${lbItems.length} — ${a.name}`;
 
-  if (isImage(a.type)) {
-    content.innerHTML = `<img src="${a.dataUrl}" alt="${a.name}" onclick="event.stopPropagation()">`;
+  // Prefer Drive display URL for images, fall back to base64 dataUrl
+  const imgSrc = a.displayUrl || a.dataUrl;
+  const dlUrl  = a.downloadUrl || a.dataUrl;
+  const openUrl = a.viewUrl || null;
+
+  if (isImage(a.type) && imgSrc) {
+    content.innerHTML = `
+      <img src="${imgSrc}" alt="${a.name}" onclick="event.stopPropagation()">
+      ${openUrl ? `<a class="lightbox-dl" href="${openUrl}" target="_blank" style="margin-top:8px;">In Drive öffnen ↗</a>` : ''}`;
   } else {
     content.innerHTML = `
       <div class="lightbox-file-view" onclick="event.stopPropagation()">
-        <div class="lightbox-file-icon">${fileIcon(a.type)}</div>
+        <div class="lightbox-file-icon">${fileIcon(a.type || '')}</div>
         <div class="lightbox-file-name">${a.name}</div>
-        <a class="lightbox-dl" href="${a.dataUrl}" download="${a.name}">Herunterladen</a>
+        ${dlUrl  ? `<a class="lightbox-dl" href="${dlUrl}" download="${a.name}">Herunterladen</a>` : ''}
+        ${openUrl ? `<a class="lightbox-dl" href="${openUrl}" target="_blank" style="margin-left:8px;">In Drive öffnen ↗</a>` : ''}
       </div>`;
   }
-  // Show/hide nav
   document.querySelector('.lightbox-nav.prev').style.display = lbItems.length > 1 ? 'flex' : 'none';
   document.querySelector('.lightbox-nav.next').style.display = lbItems.length > 1 ? 'flex' : 'none';
 }
@@ -2178,12 +2328,15 @@ function renderGridFromList(filtered) {
 
     const attachStrip = atts.length > 0 ? `
       <div class="card-attachments">
-        ${shown.map((a, i) => `
+        ${shown.map((a, i) => {
+          const imgSrc = a.displayUrl || a.dataUrl || null;
+          return `
           <div class="card-attach-thumb" onclick="openLightboxFromCard(${idea.id}, ${i})" title="${a.name}">
-            ${isImage(a.type)
-              ? `<img src="${a.dataUrl}" alt="${a.name}">`
+            ${isImage(a.type) && imgSrc
+              ? `<img src="${imgSrc}" alt="${a.name}">`
               : `<div class="mini-icon">${fileIcon(a.type)}<span>${truncName(a.name)}</span></div>`}
-          </div>`).join('')}
+          </div>`;
+        }).join('')}
         ${extra > 0 ? `<div class="attach-count" onclick="openLightboxFromCard(${idea.id}, ${maxShow})">+${extra}</div>` : ''}
       </div>` : '';
 
@@ -2229,8 +2382,10 @@ let editingId = null;
 
 function openModal() {
   editingId = null;
+  _currentIdeaIdForUpload = 'new_' + Date.now(); // temp ID until saved
   pendingAttachments = [];
   renderAttachPreview();
+  setUploadStatus('', '');
   document.getElementById('lightbox').classList.remove('open');
 
   ['inp-title','inp-desc','inp-budget','inp-source','inp-tags'].forEach(id => {
@@ -2250,9 +2405,11 @@ function openEditModal(id) {
   const idea = ideas.find(i => i.id === id);
   if (!idea) return;
   editingId = id;
+  _currentIdeaIdForUpload = id; // use real ID so new uploads go to correct Drive folder
 
   pendingAttachments = [...(idea.attachments || [])];
   renderAttachPreview();
+  setUploadStatus('', '');
   document.getElementById('lightbox').classList.remove('open');
 
   _populateModalSelects(idea.cat, idea.prio);
@@ -2290,8 +2447,18 @@ function saveIdea() {
   const title = document.getElementById('inp-title').value.trim();
   if (!title) { document.getElementById('inp-title').focus(); return; }
 
+  // Block save if any attachment is still uploading
+  const uploading = pendingAttachments.some(a => a.status === 'pending');
+  if (uploading) {
+    setUploadStatus('⏳ Bitte warte bis alle Dateien hochgeladen sind…', 'error');
+    return;
+  }
+
   const tags = document.getElementById('inp-tags').value
     .split(',').map(t => t.trim()).filter(Boolean);
+
+  // Assign real idea ID to any attachments that used a temp ID
+  const newId = editingId !== null ? editingId : Date.now();
 
   const data = {
     cat:         document.getElementById('inp-cat').value,
@@ -2302,7 +2469,16 @@ function saveIdea() {
     source:      document.getElementById('inp-source').value || 'Manuell',
     tags,
     status:      document.getElementById('inp-status').value || 'draft',
-    attachments: [...pendingAttachments],
+    // Store only Drive metadata (no base64 dataUrl) to keep ideas array lean
+    attachments: pendingAttachments.map(a => ({
+      name:        a.name,
+      type:        a.type,
+      fileId:      a.fileId      || null,
+      displayUrl:  a.displayUrl  || null,
+      viewUrl:     a.viewUrl     || null,
+      downloadUrl: a.downloadUrl || null,
+      status:      a.status,
+    })),
   };
 
   if (editingId !== null) {
@@ -2310,7 +2486,7 @@ function saveIdea() {
     if (idx !== -1) ideas[idx] = { ...ideas[idx], ...data };
     showToast('Idee aktualisiert');
   } else {
-    ideas.push({ id: Date.now(), stars: 3, ...data });
+    ideas.push({ id: newId, stars: 3, ...data });
     showToast('Idee gespeichert');
   }
 
@@ -2426,11 +2602,11 @@ function exportExcel() {
 }
 
 // ── GOOGLE SHEETS INTEGRATION (Apps Script Web App) ──────────────────────────
-const GS_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwhlj55k9CvrD3vbAvDOgvUmm75_Vbbz1vN4xLXmt0zxbDk4bOPRrDqKt6iV9JpW_lm/exec';
+const GS_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbzgO3eMGgRiuH3f15lwA6lp8O-X0vgYjjJFXqZhQBbUmV7RABMByDlrkdeeSqI5J-6F/exec';
 
 const GS_COLUMNS = [
   'ID','Kategorie','Titel','Beschreibung','Priorität','Status',
-  'Bewertung','Budget (EUR)','Quelle','Tags','Anhänge (Namen)'
+  'Bewertung','Budget (EUR)','Quelle','Tags','Anhänge (Namen)','Anhänge (URLs)'
 ];
 
 let gsSyncing    = false;
@@ -2465,7 +2641,6 @@ function setSyncBtnState(state) {
   }
 }
 
-// ── Build rows from local ideas ───────────────────────────────────────────────
 function gsBuildRows() {
   const PRIO_LABEL = Object.fromEntries(
     Object.entries(PRIO_CONFIG).map(([k, p]) => [k, p.label])
@@ -2484,6 +2659,7 @@ function gsBuildRows() {
       idea.source      || '',
       (idea.tags       || []).join(', '),
       (idea.attachments|| []).map(a => a.name).join(', '),
+      (idea.attachments|| []).map(a => a.viewUrl || '').filter(Boolean).join('\n'),
     ])
   ];
 }
@@ -2494,9 +2670,8 @@ function gsParseRows(rows) {
   const header = rows[0];
   const colIdx = name => header.indexOf(name);
 
-  // Build reverse lookups
-  const catByLabel  = Object.fromEntries(Object.entries(CATS).map(([k,c]) => [c.label, k]));
-  const prioByLabel = Object.fromEntries(Object.entries(PRIO_CONFIG).map(([k,p]) => [p.label, k]));
+  const catByLabel    = Object.fromEntries(Object.entries(CATS).map(([k,c]) => [c.label, k]));
+  const prioByLabel   = Object.fromEntries(Object.entries(PRIO_CONFIG).map(([k,p]) => [p.label, k]));
   const statusByLabel = Object.fromEntries(Object.entries(STATUS_CONFIG).map(([k,s]) => [s.label, k]));
 
   return rows.slice(1).filter(r => r[colIdx('Titel')]).map(r => {
@@ -2505,6 +2680,29 @@ function gsParseRows(rows) {
     const prioLabel   = get('Priorität');
     const statusLabel = String(get('Status') || 'Draft');
     const tagsRaw     = String(get('Tags') || '');
+
+    // Reconstruct attachments from stored names + Drive URLs
+    const namesRaw = String(get('Anhänge (Namen)') || '');
+    const urlsRaw  = String(get('Anhänge (URLs)')  || '');
+    const names    = namesRaw ? namesRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const urls     = urlsRaw  ? urlsRaw.split('\n').map(s => s.trim()).filter(Boolean) : [];
+
+    const attachments = names.map((name, i) => {
+      const viewUrl = urls[i] || null;
+      // Derive fileId from Drive URL: https://drive.google.com/file/d/{fileId}/view
+      const fileIdMatch = viewUrl && viewUrl.match(/\/d\/([a-zA-Z0-9_-]+)\//);
+      const fileId      = fileIdMatch ? fileIdMatch[1] : null;
+      const ext         = name.split('.').pop().toLowerCase();
+      const type        = ['jpg','jpeg','png','gif','webp','svg'].includes(ext) ? `image/${ext === 'jpg' ? 'jpeg' : ext}` : '';
+      const displayUrl  = fileId && type.startsWith('image/')
+        ? `https://drive.google.com/uc?export=view&id=${fileId}`
+        : null;
+      const downloadUrl = fileId
+        ? `https://drive.google.com/uc?export=download&id=${fileId}`
+        : null;
+      return { name, type, fileId, viewUrl, displayUrl, downloadUrl, status: 'uploaded' };
+    });
+
     return {
       id:          Number(get('ID')) || Date.now(),
       cat:         catByLabel[catLabel]    || Object.keys(CATS)[0],
@@ -2516,7 +2714,7 @@ function gsParseRows(rows) {
       budget:      String(get('Budget (EUR)')  || ''),
       source:      String(get('Quelle')        || ''),
       tags:        tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [],
-      attachments: [],
+      attachments,
     };
   });
 }
