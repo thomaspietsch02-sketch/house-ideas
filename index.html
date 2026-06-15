@@ -1633,6 +1633,16 @@
       <input type="text" id="inp-tags" placeholder="z.B. Licht, Sichtbeton, Nachhaltigkeit">
     </div>
     <div class="form-row">
+      <label>Bewertung</label>
+      <div class="stars" id="inp-stars" style="font-size:1.4rem;letter-spacing:4px;margin-top:4px;">
+        <span class="star" onclick="setModalStars(1)">☆</span>
+        <span class="star" onclick="setModalStars(2)">☆</span>
+        <span class="star" onclick="setModalStars(3)">☆</span>
+        <span class="star" onclick="setModalStars(4)">☆</span>
+        <span class="star" onclick="setModalStars(5)">☆</span>
+      </div>
+    </div>
+    <div class="form-row">
       <label>Status</label>
       <select id="inp-status">
         <option value="draft">Draft</option>
@@ -2403,6 +2413,7 @@ function openModal() {
     document.getElementById(id).value = '';
   });
   document.getElementById('inp-status').value = 'draft';
+  setModalStars(3);
   _populateModalSelects(null, null);
 
   document.getElementById('modal-title-text').textContent = 'Neue Idee erfassen';
@@ -2432,6 +2443,7 @@ function openEditModal(id) {
   document.getElementById('inp-source').value = idea.source || '';
   document.getElementById('inp-tags').value   = (idea.tags || []).join(', ');
   document.getElementById('inp-status').value = idea.status || 'draft';
+  setModalStars(idea.stars || 3);
 
   document.getElementById('modal-title-text').textContent = 'Idee bearbeiten';
   const badge = document.getElementById('modal-mode-badge');
@@ -2477,6 +2489,7 @@ function saveIdea() {
     title,
     desc:        document.getElementById('inp-desc').value,
     notes:       document.getElementById('inp-notes').value,
+    stars:       Number(document.getElementById('inp-stars').dataset.value) || 3,
     prio:        document.getElementById('inp-prio').value,
     budget:      document.getElementById('inp-budget').value,
     source:      document.getElementById('inp-source').value || 'Manuell',
@@ -2508,6 +2521,13 @@ function saveIdea() {
   closeModal();
   renderGrid();
   gsMaybeSyncAfterChange();
+}
+
+function setModalStars(n) {
+  document.querySelectorAll('#inp-stars .star').forEach((el, i) => {
+    el.textContent = i < n ? '★' : '☆';
+  });
+  document.getElementById('inp-stars').dataset.value = n;
 }
 
 function setStars(ideaId, n) {
@@ -2876,23 +2896,3 @@ renderGrid();
         <div id="set-cats-list"></div>
         <button class="add-row-btn" onclick="addCatRow()">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Kategorie hinzufügen
-        </button>
-      </div>
-
-      <!-- Prioritäten -->
-      <div class="settings-section">
-        <div class="settings-section-title">Prioritäts-Bezeichnungen</div>
-        <div id="set-prio-list"></div>
-      </div>
-
-    </div>
-    <div class="settings-save-bar">
-      <button class="btn-cancel" onclick="closeSettings()">Abbrechen</button>
-      <button class="btn-save" onclick="applySettings()">Übernehmen</button>
-    </div>
-  </div>
-</div>
-
-</body>
-</html>
