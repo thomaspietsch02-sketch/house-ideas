@@ -1638,6 +1638,10 @@
       </select>
     </div>
     <div class="form-row">
+      <label>Notizen (interne Anmerkungen, Details, Links…)</label>
+      <textarea id="inp-notes" placeholder="Ausführliche Notizen, Referenzen, technische Details, URLs…" style="min-height:120px"></textarea>
+    </div>
+    <div class="form-row">
       <label>Anhänge (Bilder, PDFs, Dokumente)</label>
       <div class="drop-zone" id="drop-zone">
         <input type="file" id="inp-files" multiple accept="image/*,.pdf,.doc,.docx,.dwg,.xlsx,.zip" onchange="handleFiles(this.files)">
@@ -2388,7 +2392,7 @@ function openModal() {
   setUploadStatus('', '');
   document.getElementById('lightbox').classList.remove('open');
 
-  ['inp-title','inp-desc','inp-budget','inp-source','inp-tags'].forEach(id => {
+  ['inp-title','inp-desc','inp-notes','inp-budget','inp-source','inp-tags'].forEach(id => {
     document.getElementById(id).value = '';
   });
   document.getElementById('inp-status').value = 'draft';
@@ -2416,6 +2420,7 @@ function openEditModal(id) {
 
   document.getElementById('inp-title').value  = idea.title  || '';
   document.getElementById('inp-desc').value   = idea.desc   || '';
+  document.getElementById('inp-notes').value  = idea.notes  || '';
   document.getElementById('inp-budget').value = idea.budget || '';
   document.getElementById('inp-source').value = idea.source || '';
   document.getElementById('inp-tags').value   = (idea.tags || []).join(', ');
@@ -2464,6 +2469,7 @@ function saveIdea() {
     cat:         document.getElementById('inp-cat').value,
     title,
     desc:        document.getElementById('inp-desc').value,
+    notes:       document.getElementById('inp-notes').value,
     prio:        document.getElementById('inp-prio').value,
     budget:      document.getElementById('inp-budget').value,
     source:      document.getElementById('inp-source').value || 'Manuell',
@@ -2538,6 +2544,7 @@ function exportExcel() {
     'Kategorie':    CATS[idea.cat]?.label || idea.cat,
     'Titel':        idea.title,
     'Beschreibung': idea.desc,
+    'Notizen':      idea.notes || '',
     'Priorität':    PRIO_LABEL[idea.prio] || idea.prio,
     'Status':       STATUS_CONFIG[idea.status || 'draft']?.label || idea.status,
     'Bewertung':    '★'.repeat(idea.stars || 3),
@@ -2560,6 +2567,7 @@ function exportExcel() {
     const catRows = catIdeas.map(idea => ({
       'Titel':        idea.title,
       'Beschreibung': idea.desc,
+      'Notizen':      idea.notes || '',
       'Priorität':    PRIO_LABEL[idea.prio] || idea.prio,
       'Bewertung':    '★'.repeat(idea.stars || 3),
       'Budget (EUR)': idea.budget || '',
@@ -2605,7 +2613,7 @@ function exportExcel() {
 const GS_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbzgO3eMGgRiuH3f15lwA6lp8O-X0vgYjjJFXqZhQBbUmV7RABMByDlrkdeeSqI5J-6F/exec';
 
 const GS_COLUMNS = [
-  'ID','Kategorie','Titel','Beschreibung','Priorität','Status',
+  'ID','Kategorie','Titel','Beschreibung','Notizen','Priorität','Status',
   'Bewertung','Budget (EUR)','Quelle','Tags','Anhänge (Namen)','Anhänge (URLs)'
 ];
 
@@ -2652,6 +2660,7 @@ function gsBuildRows() {
       CATS[idea.cat]?.label || idea.cat,
       idea.title       || '',
       idea.desc        || '',
+      idea.notes       || '',
       PRIO_LABEL[idea.prio] || idea.prio || '',
       STATUS_CONFIG[idea.status || 'draft']?.label || idea.status || 'Draft',
       idea.stars       || 3,
@@ -2695,7 +2704,7 @@ function gsParseRows(rows) {
       const ext         = name.split('.').pop().toLowerCase();
       const type        = ['jpg','jpeg','png','gif','webp','svg'].includes(ext) ? `image/${ext === 'jpg' ? 'jpeg' : ext}` : '';
       const displayUrl  = fileId && type.startsWith('image/')
-        ? `https://drive.google.com/uc?export=view&id=${fileId}`
+        ? `https://drive.google.com/thumbnail?id=${fileId}&sz=w400`
         : null;
       const downloadUrl = fileId
         ? `https://drive.google.com/uc?export=download&id=${fileId}`
@@ -2708,6 +2717,7 @@ function gsParseRows(rows) {
       cat:         catByLabel[catLabel]    || Object.keys(CATS)[0],
       title:       String(get('Titel')         || ''),
       desc:        String(get('Beschreibung')  || ''),
+      notes:       String(get('Notizen')       || ''),
       prio:        prioByLabel[prioLabel]  || 'mittel',
       status:      statusByLabel[statusLabel] || 'draft',
       stars:       Number(get('Bewertung'))    || 3,
