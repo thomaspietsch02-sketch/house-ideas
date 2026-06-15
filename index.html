@@ -1015,7 +1015,9 @@
   .empty-state p { font-family: 'Inter', sans-serif; font-size: 0.85rem; font-weight: 300; font-style: normal; letter-spacing: 0.02em; }
 
   /* Bewertungs-Sterne */
-  .stars { color: var(--gold); font-size: 0.75rem; letter-spacing: 2px; }
+  .stars { color: var(--gold); font-size: 0.75rem; letter-spacing: 2px; display:flex; gap:2px; }
+  .star { cursor: pointer; transition: transform 0.1s, opacity 0.1s; display:inline-block; }
+  .star:hover { transform: scale(1.25); opacity: 0.85; }
 
   /* FILTER / SORT BAR */
   .filter-bar {
@@ -2322,7 +2324,10 @@ function renderGridFromList(filtered) {
     const prioClass = `priority-${idea.prio}`;
     const pc = PRIO_CONFIG[idea.prio] || { label: idea.prio, symbol: '●', color: '#888' };
     const prioLabel = `<span style="color:${pc.color}">${pc.symbol} ${pc.label}</span>`;
-    const stars = '★'.repeat(idea.stars || 3) + '☆'.repeat(5 - (idea.stars || 3));
+    const starCount = idea.stars || 3;
+    const stars = [1,2,3,4,5].map(n =>
+      `<span class="star" onclick="setStars(${idea.id},${n})" title="${n} Stern${n>1?'e':''}">${n <= starCount ? '★' : '☆'}</span>`
+    ).join('');
     const tags = (idea.tags || []).map(t => {
       const isActive = activeTagFilters.includes(t);
       return `<span class="tag" style="${isActive ? 'background:rgba(201,169,110,0.18);border-color:rgba(201,169,110,0.4);color:var(--gold-light);cursor:pointer;' : 'cursor:pointer;'}" onclick="addTagFilter('${t}')" title="Nach '${t}' filtern">${t}</span>`;
@@ -2501,6 +2506,14 @@ function saveIdea() {
   pendingAttachments = [];
   renderAttachPreview();
   closeModal();
+  renderGrid();
+  gsMaybeSyncAfterChange();
+}
+
+function setStars(ideaId, n) {
+  const idea = ideas.find(i => i.id === ideaId);
+  if (!idea) return;
+  idea.stars = n;
   renderGrid();
   gsMaybeSyncAfterChange();
 }
@@ -2881,3 +2894,5 @@ renderGrid();
   </div>
 </div>
 
+</body>
+</html>
