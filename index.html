@@ -2109,17 +2109,22 @@ async function uploadAttachmentToDrive(att, idx) {
   setUploadProgress(10);
 
   // Use the idea's existing ID if editing, otherwise use a temp session key
-  const ideaId = _currentIdeaIdForUpload || ('new_' + Date.now());
+  const ideaId    = _currentIdeaIdForUpload || ('new_' + Date.now());
+  // Get title: from existing idea (edit mode) or from the title input (new mode)
+  const ideaTitle = editingId !== null
+    ? (ideas.find(i => i.id === editingId)?.title || document.getElementById('inp-title').value.trim())
+    : document.getElementById('inp-title').value.trim();
 
   try {
     const res = await fetch(GS_WEBAPP_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({
-        action:    'upload',
-        ideaId:    String(ideaId),
-        fileName:  att.name,
-        mimeType:  att.type,
+        action:     'upload',
+        ideaId:     String(ideaId),
+        ideaTitle,
+        fileName:   att.name,
+        mimeType:   att.type,
         base64Data: att.dataUrl,
       }),
     });
