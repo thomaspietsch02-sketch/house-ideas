@@ -2132,7 +2132,7 @@ async function uploadAttachmentToDrive(att, idx) {
     setUploadProgress(80);
     const data = await res.json().catch(() => ({}));
 
-    console.log('[upload debug]', data._debug);
+    console.log('[upload full response]', JSON.stringify(data));
     if (data.status !== 'ok') throw new Error(data.message || 'Upload fehlgeschlagen');
 
     // Update the attachment in place with Drive metadata
