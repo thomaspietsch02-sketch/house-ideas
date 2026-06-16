@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Architektur Ideen-Board — Luxus EFH</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1683,6 +1686,7 @@
   <div class="filter-bar" id="filter-bar">
     <span class="filter-bar-label">Sortieren</span>
     <select class="sort-select" id="sort-select" onchange="applyFiltersAndSort()">
+      <option value="updated-desc">Zuletzt bearbeitet ↓</option>
       <option value="default">Standard (Eingabe)</option>
       <option value="prio-asc">Priorität ↑</option>
       <option value="prio-desc">Priorität ↓</option>
@@ -1865,7 +1869,8 @@ const CATS = {
 };
 
 // Beispieldaten
-let ideas = [
+let ideas = []; /* seed data removed — data loads from Google Sheets on startup */
+const _SEED_IDEAS_REMOVED = [
   {
     id: 1, cat: 'architektur', title: 'Flachdach mit begrüntem Dachgarten',
     desc: 'Extensives Gründach (8–12 cm Substrat) als 5. Fassade, sichtbar vom Nachbargrundstück. Integration einer privaten Dachterrasse mit Pergola-Struktur aus Cortenstahl.',
@@ -1902,7 +1907,7 @@ let ideas = [
     prio: 'optional', budget: 'EUR 120.000 – 160.000', source: 'Bauherr Referenz Zillertal Lodge',
     tags: ['Wellness', 'Sauna', 'Naturstein', 'UG'], stars: 3, status: 'draft', attachments: []
   },
-];
+]; /* end _SEED_IDEAS_REMOVED */
 
 // ── FILTER & SORT STATE ───────────────────────────────────────────────────────
 let currentFilter    = 'alle';
@@ -2048,7 +2053,9 @@ function applyFiltersAndSort() {
   }
 
   // 4. Sort
-  if (sortVal === 'prio-asc') {
+  if (sortVal === 'updated-desc' || sortVal === 'default') {
+    result.sort((a, b) => (b.updatedAt || b.id || 0) - (a.updatedAt || a.id || 0));
+  } else if (sortVal === 'prio-asc') {
     result.sort((a, b) => prioOrder.indexOf(a.prio) - prioOrder.indexOf(b.prio));
   } else if (sortVal === 'prio-desc') {
     result.sort((a, b) => prioOrder.indexOf(b.prio) - prioOrder.indexOf(a.prio));
@@ -2816,6 +2823,7 @@ function saveIdea() {
     source:      document.getElementById('inp-source').value || 'Manuell',
     tags,
     status:      document.getElementById('inp-status').value || 'draft',
+    updatedAt:   Date.now(),
     // Store only Drive metadata (no base64 dataUrl) to keep ideas array lean
     attachments: pendingAttachments.map(a => ({
       name:        a.name,
@@ -2998,7 +3006,7 @@ function exportExcel() {
 const GS_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbzgO3eMGgRiuH3f15lwA6lp8O-X0vgYjjJFXqZhQBbUmV7RABMByDlrkdeeSqI5J-6F/exec';
 
 const GS_COLUMNS = [
-  'ID','Kategorie','Titel','Beschreibung','Notizen','Priorität','Status',
+  'ID','Zuletzt bearbeitet','Kategorie','Titel','Beschreibung','Notizen','Priorität','Status',
   'Bewertung','Budget (EUR)','Quelle','Tags','Links','Anhänge (Namen)','Anhänge (URLs)'
 ];
 
@@ -3042,6 +3050,7 @@ function gsBuildRows() {
     GS_COLUMNS,
     ...ideas.map(idea => [
       idea.id,
+      idea.updatedAt ? new Date(idea.updatedAt).toISOString() : '',
       CATS[idea.cat]?.label || idea.cat,
       idea.title       || '',
       idea.desc        || '',
@@ -3100,6 +3109,7 @@ function gsParseRows(rows) {
 
     return {
       id:          Number(get('ID')) || Date.now(),
+      updatedAt:   get('Zuletzt bearbeitet') ? new Date(get('Zuletzt bearbeitet')).getTime() : null,
       cat:         catByLabel[catLabel]    || Object.keys(CATS)[0],
       title:       String(get('Titel')         || ''),
       desc:        String(get('Beschreibung')  || ''),
@@ -3163,7 +3173,8 @@ async function gsPull() {
       gsLastSynced = new Date().toLocaleTimeString('de-DE', { hour:'2-digit', minute:'2-digit' });
       gsSyncStatus(`✓ ${ideas.length} Ideen geladen — ${gsLastSynced}`, 'success');
     } else {
-      gsSyncStatus('Sheet ist leer — lokale Daten behalten', 'success');
+      gsSyncStatus('Sheet ist leer — noch keine Ideen erfasst', 'success');
+      renderGrid();
     }
     setSyncBtnState('idle');
   } catch (err) {
@@ -3199,7 +3210,15 @@ function gsMaybeSyncAfterChange() {
 
 // ── On load: auto-pull from sheet ────────────────────────────────────────────
 window.addEventListener('load', () => {
-  setTimeout(gsPull, 800); // slight delay so UI renders first
+  // Show loading state immediately, then pull from Sheets
+  const grid = document.getElementById('grid');
+  grid.className = 'ideas-grid';
+  grid.innerHTML = `
+    <div class="empty-state" style="grid-column:1/-1">
+      <div class="empty-icon" style="animation:pulse 1.5s infinite">⟳</div>
+      <p>Lade Daten aus Google Sheets…</p>
+    </div>`;
+  gsPull();
 });
 
 
@@ -3220,8 +3239,8 @@ function toggleTheme() {
   }
 }
 
-// Init
-renderGrid();
+// Init — grid is populated by gsPull() on window load
+document.getElementById('sort-select').value = 'updated-desc';
 </script>
 <!-- Settings Panel -->
 <div class="settings-overlay" id="settings-overlay" onclick="closeSettingsOutside(event)">
